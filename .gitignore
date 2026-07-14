@@ -1,0 +1,11 @@
+# Data and model artifacts
+/data/
+/models_store/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+.env/
