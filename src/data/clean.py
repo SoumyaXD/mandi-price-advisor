@@ -16,7 +16,7 @@ if str(project_root) not in sys.path:
 import pandas as pd
 
 # Import the path constant from the central config
-from src.config import RAW_KAGGLE_FILE, PROCESSED_DATA_DIR, RANDOM_SEED, COL_DATE
+from src.config import RAW_KAGGLE_FILE, PROCESSED_DATA_DIR, RANDOM_SEED, COL_DATE, COL_MODAL_PRICE
 
 # Setup a basic logger
 logging.basicConfig(
@@ -176,6 +176,42 @@ def main():
         print(df["modal_price"].describe())
     else:
         print("No 'modal_price' column to describe.")
+
+    # 10. CSV round-trip date dtype verification
+    # CSV has no type metadata — to_csv() writes dates as plain text strings, so a
+    # plain read_csv() will load price_date back as dtype=object.  We need to pass
+    # parse_dates=[COL_DATE] (or call pd.to_datetime after loading) to restore datetime64.
+    print("\n--- CSV Round-Trip Date Verification ---")
+    df_raw_reload  = pd.read_csv(output_path)                                   # no parse_dates
+    df_parsed_reload = pd.read_csv(output_path, parse_dates=[COL_DATE])         # with parse_dates
+
+    raw_dtype    = df_raw_reload[COL_DATE].dtype
+    parsed_dtype = df_parsed_reload[COL_DATE].dtype
+
+    print(f"dtype WITHOUT parse_dates : {raw_dtype}")
+    if str(raw_dtype) == "object":
+        print(
+            "  ⚠  As expected: CSV round-trip loses type info. "
+            "price_date is read back as plain strings (object). "
+            "Always use read_csv(..., parse_dates=['price_date']) or "
+            "pd.to_datetime() after loading."
+        )
+    else:
+        print("  ✓  Unexpectedly already parsed — pandas may have inferred the type.")
+
+    print(f"dtype WITH  parse_dates   : {parsed_dtype}")
+    if str(parsed_dtype).startswith("datetime64"):
+        print("  ✓  Correct: datetime64 dtype restored via parse_dates.")
+    else:
+        print(f"  ⚠  Unexpected dtype after parse_dates: {parsed_dtype}")
+
+    date_min = df_parsed_reload[COL_DATE].min()
+    date_max = df_parsed_reload[COL_DATE].max()
+    print(f"Date range (parsed reload): {date_min.date()} → {date_max.date()}")
+    if date_min.year >= 2023 and date_max.year <= 2025:
+        print("  ✓  Date range is within expected 2023-2025 window.")
+    else:
+        print(f"  ⚠  Date range falls outside 2023-2025 — check the source data.")
 
 
 if __name__ == "__main__":
