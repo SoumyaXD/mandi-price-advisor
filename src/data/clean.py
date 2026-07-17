@@ -1,4 +1,4 @@
-"""Data cleaning pipeline for the mandi-price-advisor project.
+"""Data cleaning pipeline for the agri-price-forecaster project.
 
 This script reads the raw CSV extracted from the zip archive, applies a series of cleaning
 steps, and writes the cleaned data to `data/processed/mandi_prices_cleaned.csv`.

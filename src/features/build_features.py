@@ -1,4 +1,4 @@
-"""Feature engineering pipeline for mandi-price-advisor.
+"""Feature engineering pipeline for agri-price-forecaster.
 
 Reads the cleaned CSV, aggregates to (state, commodity, date) daily level,
 then builds lag, rolling, calendar, and MSP-relative features.
@@ -84,17 +84,24 @@ def add_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
     LEAKAGE PREVENTION: the series is shifted by 1 before rolling so the
     current row's own modal_price is never included in its own statistic.
     Both shift and rolling are applied within each (state, commodity) group.
+
+    min_periods=3: deliberately chosen — fewer than 3 prior observations is
+    too thin to produce a meaningful rolling statistic. Rows with < 3
+    preceding values in the group will be NaN, which is the correct signal
+    rather than a noisy single-point "average".
     """
-    grp = df.groupby([COL_STATE, COL_COMMODITY])[COL_MODAL_PRICE]
+    GROUP_COLS = [COL_STATE, COL_COMMODITY]
+    MIN_PERIODS = 3
+
     for w in [7, 30]:
-        shifted = grp.shift(1)  # exclude current row
+        shifted = df.groupby(GROUP_COLS)[COL_MODAL_PRICE].shift(1)
         df[f"rolling_mean_{w}"] = (
-            shifted.groupby(df[COL_STATE].astype(str) + "__" + df[COL_COMMODITY])
-            .transform(lambda s: s.rolling(w, min_periods=1).mean())
+            shifted.groupby([df[COL_STATE], df[COL_COMMODITY]])
+            .transform(lambda s: s.rolling(w, min_periods=MIN_PERIODS).mean())
         )
         df[f"rolling_std_{w}"] = (
-            shifted.groupby(df[COL_STATE].astype(str) + "__" + df[COL_COMMODITY])
-            .transform(lambda s: s.rolling(w, min_periods=1).std())
+            shifted.groupby([df[COL_STATE], df[COL_COMMODITY]])
+            .transform(lambda s: s.rolling(w, min_periods=MIN_PERIODS).std())
         )
         logger.info("Added rolling_mean_%d and rolling_std_%d", w, w)
     return df

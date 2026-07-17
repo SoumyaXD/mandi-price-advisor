@@ -1,4 +1,4 @@
-"""Centralized configuration for the mandi-price-advisor project.
+"""Centralized configuration for the agri-price-forecaster project.
 
 All paths and constants used throughout the codebase should be imported from this module to avoid hard‑coded values.
 """

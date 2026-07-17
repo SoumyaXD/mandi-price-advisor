@@ -1,4 +1,4 @@
-# mandi-price-advisor
+# agri-price-forecaster
 
 A machine learning pipeline to predict agricultural commodity prices across Indian mandi (market) locations. Built to help farmers, traders, and analysts make informed decisions based on historical price trends.
 
@@ -9,7 +9,7 @@ Agricultural commodity prices in Indian mandis fluctuate significantly based on 
 ## Project Structure
 
 ```
-mandi-price-advisor/
+agri-price-forecaster/
 ├─ data/
 │  ├─ raw/
 │  │  └─ extracted/              # Raw Kaggle CSV (Agriculture_price_dataset.csv)
