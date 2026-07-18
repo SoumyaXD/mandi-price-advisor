@@ -22,7 +22,9 @@ agri-price-forecaster/
 │  ├─ features/
 │  │  ├─ check_granularity.py    # Granularity analysis (Phase 2)
 │  │  └─ build_features.py       # Feature engineering (Phase 2)
-│  ├─ models/                    # Model training & evaluation (upcoming)
+│  ├─ models/
+│  │  ├─ train_baseline.py       # Naive lag-1 baseline (Phase 3)
+│  │  └─ investigate_gaps.py     # Commodity coverage gap analysis
 │  ├─ api/                       # FastAPI prediction service (upcoming)
 │  └─ config.py                  # Centralized paths and column name constants
 ├─ models_store/                 # Saved model artifacts
@@ -71,7 +73,19 @@ Aggregates to `(state, commodity, price_date)` daily level (~36k rows), then add
 - MSP-relative: `price_vs_msp = modal_price / 2425` for Wheat only; NaN for all other commodities
 - Output: `data/processed/mandi_prices_features.csv` (36,068 rows × 17 columns)
 
-### Phase 3 — Model Training & Evaluation (upcoming)
+### Phase 3 — Baseline & Model Training (in progress)
+
+#### Naive baseline (`src/models/train_baseline.py`)
+
+Time-based 80/20 split (cutoff: 2025-01-15). Scoped to Onion and Potato only — see Known Limitations below.
+
+| group | n (test) | MAE | RMSE | MAPE (%) |
+|---|---|---|---|---|
+| OVERALL | 6,108 | 112.99 | 253.86 | 6.39% |
+| Onion | 2,736 | 111.08 | 253.49 | 5.70% |
+| Potato | 3,372 | 114.54 | 254.16 | 6.95% |
+
+Predictions saved to `data/processed/baseline_predictions.csv` for comparison against real models.
 
 ### Phase 4 — API & Serving (upcoming)
 
@@ -87,6 +101,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Known Limitations & Scope Decisions
+
+- **v1 modeling is scoped to Onion and Potato only.** Investigation found Tomato and Wheat have hard reporting cutoffs in the source dataset (Nov 2023 and Feb 2024 respectively) — confirmed as a real seasonal data-tracking gap, not a pipeline bug, since the cutoff is identical in both raw and cleaned data and reflects a national stop in reporting rather than a gradual coverage decline. Onion and Potato have continuous multi-year coverage and are the v1 forecasting targets.
+- Tomato/Wheat data is still cleaned and feature-engineered for future use (e.g. once live daily ingestion accumulates enough post-2025 data).
+
 ## Running the Pipeline
 
 ```bash
@@ -98,6 +117,9 @@ python -m src.features.check_granularity
 
 # Phase 2 — build features
 python -m src.features.build_features
+
+# Phase 3 — naive baseline
+python -m src.models.train_baseline
 ```
 
 ## Column Name Reference

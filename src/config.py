@@ -29,3 +29,14 @@ COL_MODAL_PRICE = "modal_price"
 
 # Other constants
 RANDOM_SEED = 42
+
+# Commodity scope
+# All 4 commodities present in the cleaned/feature data — kept for completeness
+# (Tomato/Wheat may be useful for CNN or RAG portfolio pieces, or a v2 forecast).
+COMMODITIES_V1 = ["Onion", "Potato", "Tomato", "Wheat"]
+
+# Modeling scope is narrower: Tomato has a hard reporting cutoff at 2023-11-06
+# and Wheat at 2024-02-06 in the source data (both confirmed present in raw CSV,
+# not introduced by our pipeline). Only Onion and Potato have continuous coverage
+# through June 2025 and are suitable for a time-based train/test split.
+COMMODITIES_MODELING_V1 = ["Onion", "Potato"]
