@@ -69,27 +69,56 @@ def section(title: str) -> None:
     print(f"\n{SEP_THICK}\n{title}\n{SEP_THICK}")
 
 
-def main():
-    # =====================================================================
-    # LOAD
-    # =====================================================================
+def load_filter_split():
+    """Load features CSV, filter to COMMODITIES_MODELING_V1, and apply the
+    time-based 80/20 split.
+
+    Single source of truth for the load+filter+split logic. Both the
+    pre-training verification pass and the XGBoost training script import
+    this so they cannot drift apart.
+
+    Returns:
+        train, test, cutoff, df_filtered (pd.DataFrame each), where
+        train = df_filtered[df_filtered[COL_DATE] <= cutoff]
+        test  = df_filtered[df_filtered[COL_DATE] >  cutoff]
+    """
     logger.info("Loading features CSV: %s", FEATURES_CSV)
     df = pd.read_csv(FEATURES_CSV, parse_dates=[COL_DATE])
     logger.info("Loaded %d rows, %d columns", len(df), len(df.columns))
+
+    # Scope filter — config-driven, not hardcoded.
+    df = df[df[COL_COMMODITY].isin(COMMODITIES_MODELING_V1)].reset_index(drop=True)
+    logger.info("After scope filter (%s): %d rows", COMMODITIES_MODELING_V1, len(df))
+
+    # Time-based 80/20 split (sort by date, cut at the 80th-percentile date).
+    df = df.sort_values(COL_DATE).reset_index(drop=True)
+    date_min = df[COL_DATE].min()
+    date_max = df[COL_DATE].max()
+    cutoff = date_min + (date_max - date_min) * TRAIN_RATIO
+
+    train = df[df[COL_DATE] <= cutoff].copy()
+    test = df[df[COL_DATE] > cutoff].copy()
+    logger.info(
+        "Split @ %s | train %d rows (%s..%s) | test %d rows (%s..%s)",
+        cutoff.date(), len(train), train[COL_DATE].min().date(), train[COL_DATE].max().date(),
+        len(test), test[COL_DATE].min().date(), test[COL_DATE].max().date(),
+    )
+    return train, test, cutoff, df
+
+
+def main():
+    # =====================================================================
+    # LOAD + FILTER + SPLIT  (reused by train_xgboost.py)
+    # =====================================================================
+    train, test, cutoff, df = load_filter_split()
 
     # =====================================================================
     # 1. RE-CONFIRM SCOPE FILTER
     # =====================================================================
     section("1. SCOPE FILTER — COMMODITIES_MODELING_V1")
     print(f"COMMODITIES_MODELING_V1 = {COMMODITIES_MODELING_V1}")
-    print(f"\nValue counts BEFORE filter ({len(df)} rows):")
-    print(df[COL_COMMODITY].value_counts(dropna=False).to_string())
-
-    df = df[df[COL_COMMODITY].isin(COMMODITIES_MODELING_V1)].reset_index(drop=True)
-
     print(f"\nValue counts AFTER filter ({len(df)} rows):")
-    vc = df[COL_COMMODITY].value_counts(dropna=False)
-    print(vc.to_string())
+    print(df[COL_COMMODITY].value_counts(dropna=False).to_string())
 
     leftover = set(df[COL_COMMODITY].unique()) - set(COMMODITIES_MODELING_V1)
     print(f"\nCommodities present after filter : {sorted(df[COL_COMMODITY].unique())}")
@@ -102,19 +131,13 @@ def main():
     # 2. RE-CONFIRM TRAIN/TEST SPLIT INTEGRITY
     # =====================================================================
     section("2. TIME-BASED 80/20 SPLIT INTEGRITY")
-    df = df.sort_values(COL_DATE).reset_index(drop=True)
-
     date_min = df[COL_DATE].min()
     date_max = df[COL_DATE].max()
     span_days = (date_max - date_min).days
-    cutoff = date_min + (date_max - date_min) * TRAIN_RATIO
 
     print(f"Date range      : {date_min.date()}  ->  {date_max.date()}  ({span_days} days)")
     print(f"TRAIN_RATIO     : {TRAIN_RATIO}")
     print(f"Cutoff date     : {cutoff.date()}  (train <= cutoff, test > cutoff)")
-
-    train = df[df[COL_DATE] <= cutoff].copy()
-    test = df[df[COL_DATE] > cutoff].copy()
 
     print(f"\nTrain rows      : {len(train)}")
     print(f"Test rows       : {len(test)}")

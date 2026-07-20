@@ -2,6 +2,10 @@
 /data/
 /models_store/
 
+# MLflow local state (machine-local; regenerated per machine)
+mlflow.db
+mlruns/
+
 # Python caches
 __pycache__/
 *.py[cod]
