@@ -103,6 +103,56 @@ def drop_commodity(df: pd.DataFrame, commodity: str = "rice") -> pd.DataFrame:
     return df
 
 
+# Canonical state names — fixes whitespace and spelling duplicates confirmed
+# by inspecting the raw cleaned data. Built from the ACTUAL 30 unique values,
+# not a guess. Merges + spelling normalizations:
+#   ' Punjab'             (whitespace)            -> 'Punjab'
+#   'Chattisgarh'         (spelling, 2576 rows)   -> 'Chhattisgarh'
+#   'Jammu and Kashmir'   (spelling, 926 rows)    -> 'Jammu & Kashmir'
+#   'Tamilnadu'           (spelling, 64626 rows)  -> 'Tamil Nadu'
+#   'Gao'                 (typo, 4 rows)          -> 'Goa'
+#   'Uttrakhand'          (typo, 38 rows)         -> 'Uttarakhand'
+# Result: 30 raw values -> 26 canonical states/UTs.
+STATE_MAPPING = {
+    " Punjab": "Punjab",
+    "Chattisgarh": "Chhattisgarh",
+    "Jammu and Kashmir": "Jammu & Kashmir",
+    "Tamilnadu": "Tamil Nadu",
+    "Gao": "Goa",
+    "Uttrakhand": "Uttarakhand",
+}
+
+
+def standardize_state_names(df: pd.DataFrame, col: str = "state") -> pd.DataFrame:
+    """Normalize state names: strip whitespace, then merge known duplicates.
+
+    Pure relabeling — never drops rows. Applied so that downstream grouping
+    (aggregation, lag/rolling by state) doesn't treat 'Punjab'/' Punjab'
+    or 'Tamilnadu'/'Tamil Nadu' as separate entities.
+
+    Any value not in STATE_MAPPING is left unchanged (after stripping).
+    """
+    if col not in df.columns:
+        logger.warning("'%s' column not found; skipping state standardization.", col)
+        return df
+
+    before_card = df[col].nunique(dropna=False)
+    before_rows = len(df)
+
+    # Defensive strip first (catches any future leading/trailing whitespace),
+    # then apply the explicit merge mapping.
+    df[col] = df[col].astype(str).str.strip().replace(STATE_MAPPING)
+
+    after_card = df[col].nunique(dropna=False)
+    after_rows = len(df)
+
+    logger.info(
+        "State standardization: %d -> %d unique values, %d -> %d rows (relabeling only)",
+        before_card, after_card, before_rows, after_rows,
+    )
+    return df
+
+
 def remove_iqr_outliers(df: pd.DataFrame, column: str = "modal_price") -> pd.DataFrame:
     """Remove outliers per commodity using the IQR method on `column`."""
     if "commodity" not in df.columns:
@@ -146,6 +196,9 @@ def main():
     df = drop_commodity(df, commodity="Rice")
     logger.info("After dropping Rice: %d rows", len(df))
 
+    # 5b. Standardize state names (strip whitespace + merge spelling duplicates)
+    df = standardize_state_names(df, col="state")
+
     # 6. Compute and print per-commodity IQR stats before outlier removal
     compute_and_print_iqr_stats(df, column="modal_price")
     # 7. Remove IQR outliers per commodity on modal_price
@@ -176,6 +229,12 @@ def main():
         print(df["modal_price"].describe())
     else:
         print("No 'modal_price' column to describe.")
+    if "state" in df.columns:
+        print(f"State cardinality: {df['state'].nunique()} unique values")
+        print("State value counts:")
+        print(df["state"].value_counts().to_string())
+    else:
+        print("No 'state' column to summarize.")
 
     # 10. CSV round-trip date dtype verification
     # CSV has no type metadata — to_csv() writes dates as plain text strings, so a
