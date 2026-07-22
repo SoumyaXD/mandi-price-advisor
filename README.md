@@ -1,10 +1,23 @@
 # agri-price-forecaster
 
-A machine learning pipeline to predict agricultural commodity prices across Indian mandi (market) locations. Built to help farmers, traders, and analysts make informed decisions based on historical price trends.
+A machine learning pipeline to forecast agricultural commodity prices across Indian *mandi* (market) locations. It ingests historical mandi price data, cleans and deduplicates it, engineers time-series features, and benchmarks forecasting models against a strong naive baseline.
+
+> **Status — v1 COMPLETE through the MODELING stage.**
+> What's done: data pipeline (clean → features) + feature engineering + a three-way model evaluation (**naive lag-1 baseline vs. direct XGBoost vs. residual-target XGBoost**), fully verified and documented.
+> What's **not** done (deliberately scoped as future work): **deployment** — a FastAPI serving layer and Docker containerization are planned for Phase 2, deferred until those tools are studied directly rather than agent-generated without understanding. No serving/API code exists in this repo yet.
 
 ## Problem Statement
 
-Agricultural commodity prices in Indian mandis fluctuate significantly based on season, location, and market dynamics. This project aims to build a price prediction system that ingests historical mandi price data, cleans and engineers features from it, trains forecasting models, and exposes predictions via an API.
+Agricultural commodity prices in Indian mandis fluctuate significantly based on season, location, and market dynamics. This project builds a price-prediction pipeline that ingests historical mandi price data, cleans and engineers features from it, trains and rigorously evaluates forecasting models, and reports an honest comparison against a naive baseline. (Exposing predictions via an API is a planned later phase — see [Roadmap](#roadmap--next-phases).)
+
+## TL;DR — What v1 Found
+
+At daily state+commodity granularity, mandi modal prices behave close to a **random walk**: the best predictor of tomorrow's price is today's price. Two XGBoost variants were trained to try to beat a naive lag-1 baseline:
+
+- **Direct XGBoost** beats the baseline on **RMSE only** (+7.7% overall — it shrinks the largest errors) but **loses on MAE (−11.9%) and MAPE (−13.6%)** — it adds noise to typical small day-to-day moves.
+- **Residual XGBoost** (the targeted attempt to fix the MAE/MAPE weakness by predicting the price *change* instead of the level) **loses on all three metrics** (MAE −12.2%, RMSE −3.8%, MAPE −10.0%). Its feature importance is strikingly flat (all 13 features between 5.9%–9.5% gain), which is itself the evidence: price *changes* are near-unpredictable from price-history features alone.
+
+**This is a real, evidenced finding, not a failed experiment.** The pipeline correctly verifies its scope, prevents leakage, evaluates apples-to-apples, and reports an honest null result against a strong baseline. The clear next step is structural supply-side features (arrivals, weather, policy) — see the [Roadmap](#roadmap--next-phases).
 
 ## Project Structure
 
@@ -12,31 +25,34 @@ Agricultural commodity prices in Indian mandis fluctuate significantly based on 
 agri-price-forecaster/
 ├─ data/
 │  ├─ raw/
-│  │  └─ extracted/              # Raw Kaggle CSV (Agriculture_price_dataset.csv)
+│  │  └─ extracted/                  # Raw Kaggle CSV (Agriculture_price_dataset.csv)
 │  └─ processed/
 │     ├─ mandi_prices_cleaned.csv    # Output of cleaning pipeline
 │     ├─ mandi_prices_features.csv   # Output of feature engineering
 │     └─ baseline_predictions.csv    # Naive lag-1 baseline predictions
 ├─ src/
 │  ├─ data/
-│  │  └─ clean.py                # Data cleaning + state-name deduplication
+│  │  └─ clean.py                    # Data cleaning + state-name deduplication
 │  ├─ features/
-│  │  ├─ check_granularity.py    # Granularity analysis
-│  │  └─ build_features.py       # Feature engineering
+│  │  ├─ check_granularity.py        # Granularity analysis (market vs. state level)
+│  │  ├─ build_features.py           # Feature engineering
+│  │  └─ verify_features_csv.py      # Feature-output integrity checks
 │  ├─ models/
-│  │  ├─ train_baseline.py       # Naive lag-1 baseline
-│  │  ├─ investigate_gaps.py     # Commodity coverage gap analysis
-│  │  ├─ pre_training_verification.py  # Pre-training integrity checks
-│  │  ├─ seasonal_check.py       # Train/test seasonality analysis
-│  │  └─ train_xgboost.py        # XGBoost training + baseline comparison
-│  ├─ api/                       # FastAPI prediction service (upcoming)
-│  └─ config.py                  # Centralized paths and column name constants
-├─ models_store/                 # Saved model artifacts + run logs
-├─ notebooks/                    # Exploratory analysis
-├─ tests/
+│  │  ├─ train_baseline.py           # Naive lag-1 baseline
+│  │  ├─ investigate_gaps.py         # Commodity coverage-gap analysis
+│  │  ├─ pre_training_verification.py # Pre-training integrity checks (+ shared load/split)
+│  │  ├─ seasonal_check.py           # Train/test seasonality analysis
+│  │  ├─ train_xgboost.py            # Direct XGBoost training + baseline comparison
+│  │  └─ train_xgboost_residual.py   # Residual-target XGBoost + 3-way comparison
+│  └─ config.py                      # Centralized paths and column-name constants
+├─ models_store/                     # Saved model artifacts (.json) + run logs
+├─ notebooks/                        # (placeholder — exploratory analysis, TBD)
+├─ tests/                            # (placeholder — TBD)
 ├─ requirements.txt
 └─ .gitignore
 ```
+
+> Note: there is intentionally **no `src/api/` directory** yet. Serving/deployment is Phase 2.
 
 ## Data & Modeling Scope
 
@@ -53,11 +69,11 @@ agri-price-forecaster/
 **Rice dropped early** during cleaning (~1% of data, insufficient volume for state+commodity coverage).
 
 **Cleaning pipeline** (`src/data/clean.py`):
-- Column name standardization (lowercase + underscores)
+- Column-name standardization (lowercase + underscores)
 - Date parsing with error coercion → `price_date`
 - Price validation: `min_price ≤ modal_price ≤ max_price`, all prices > 0
 - Per-commodity IQR outlier removal on `modal_price` (upper bound Q3 + 3×IQR)
-- **State name deduplication** (added after pre-training verification surfaced duplicate state labels): 30 raw state variants → 26 canonical states/UTs. Merges: `' Punjab'→'Punjab'`, `'Chattisgarh'→'Chhattisgarh'`, `'Jammu and Kashmir'→'Jammu & Kashmir'`, `'Tamilnadu'→'Tamil Nadu'`, `'Gao'→'Goa'`, `'Uttrakhand'→'Uttarakhand'`.
+- **State-name deduplication** (added after pre-training verification surfaced duplicate state labels): 30 raw state variants → 26 canonical states/UTs. Merges: `' Punjab'→'Punjab'`, `'Chattisgarh'→'Chhattisgarh'`, `'Jammu and Kashmir'→'Jammu & Kashmir'`, `'Tamilnadu'→'Tamil Nadu'`, `'Gao'→'Goa'`, `'Uttrakhand'→'Uttarakhand'`.
 - Output: `data/processed/mandi_prices_cleaned.csv` (**722,909 rows × 8 columns**)
 
 **Feature granularity: state + commodity, not market.** Empirical coverage analysis (`src/features/check_granularity.py`) showed market-level grouping is too sparse for time-series features — a `lag_7` at market level would span weeks of calendar time, not days:
@@ -75,7 +91,7 @@ State+commodity was chosen as the modeling granularity.
 
 ## Feature Engineering
 
-Final model input: **14 features** (`MODEL_FEATURES` in `src/models/pre_training_verification.py`, shared by import with `train_xgboost.py`).
+Final model input: **14 features** (`MODEL_FEATURES` in `src/models/pre_training_verification.py`, shared by import with both training scripts).
 
 | Group | Features | Notes |
 |---|---|---|
@@ -94,21 +110,34 @@ Final model input: **14 features** (`MODEL_FEATURES` in `src/models/pre_training
 
 Time-based 80/20 split, cutoff **2025-01-14** (train ≤ cutoff, test > cutoff). Train: **22,277 rows** (2023-06-06 → 2025-01-14). Test: **5,599 rows** (2025-01-15 → 2025-06-11). No overlap, no leakage.
 
-**XGBoost (v1)**: `n_estimators=300, max_depth=6, learning_rate=0.05`, `objective=reg:squarederror`, `enable_categorical=True`, `tree_method=hist`, `random_state=42`. Native NaN handling, no imputation.
+**Three models, identical setup:**
+- **Naive lag-1 baseline** — `predicted = lag_1`.
+- **Direct XGBoost** — predicts `modal_price` directly. `n_estimators=300, max_depth=6, learning_rate=0.05`, `objective=reg:squarederror`, `enable_categorical=True`, `tree_method=hist`, `random_state=42`. Native NaN handling, no imputation.
+- **Residual XGBoost** — predicts the **residual** (`modal_price − lag_1`, i.e. the price *change*), then reconstructs the price at inference as `predicted_price = lag_1 + predicted_residual`. Same hyperparameters; `lag_1` is excluded from its feature set (it is already baked into the target). Motivation: force the model to learn what the naive baseline gets *wrong* rather than relearning the price level.
 
-**Baseline (naive lag-1)**: `predicted = lag_1`, evaluated on the same 5,599-row test set as XGBoost for an apples-to-apples comparison.
+All three are scored on the **same 5,598-row post-cutoff test subset** (rows with non-NaN `lag_1`, required to construct the residual target). The direct model's standalone run on the full 5,599-row test set gave 122.20 / 225.92 / 6.93 — cross-checked and consistent with its subset numbers below.
 
-| Group | n | MAE base | MAE xgb | MAE Δ% | RMSE base | RMSE xgb | RMSE Δ% | MAPE base | MAPE xgb | MAPE Δ% |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| OVERALL | 5,599 | 109.16 | 122.20 | **−11.9** | 244.76 | 225.92 | **+7.7** | 6.10 | 6.93 | **−13.6** |
-| Onion | 2,499 | 110.48 | 137.45 | −24.4 | 251.04 | 243.31 | +3.1 | 5.69 | 7.00 | −23.0 |
-| Potato | 3,100 | 108.09 | 109.90 | −1.7 | 239.57 | 210.87 | +12.0 | 6.44 | 6.87 | −6.7 |
+| Group | n | Model | MAE | RMSE | MAPE % |
+|---|---:|---|---:|---:|---:|
+| OVERALL | 5,598 | naive lag-1 (baseline) | 109.16 | 244.76 | 6.10 |
+| | | direct XGBoost | 122.10 (−11.9%) | **225.77 (+7.7%)** | 6.93 (−13.6%) |
+| | | residual XGBoost | 122.45 (−12.2%) | 254.05 (−3.8%) | 6.71 (−10.0%) |
+| Onion | 2,499 | naive lag-1 (baseline) | 110.48 | 251.04 | 5.69 |
+| | | direct XGBoost | 137.45 (−24.4%) | **243.31 (+3.1%)** | 7.00 (−23.0%) |
+| | | residual XGBoost | 129.35 (−17.1%) | 265.37 (−5.7%) | 6.50 (−14.2%) |
+| Potato | 3,099 | naive lag-1 (baseline) | 108.09 | 239.57 | 6.44 |
+| | | direct XGBoost | 109.72 (−1.5%) | **210.57 (+12.1%)** | 6.87 (−6.7%) |
+| | | residual XGBoost | 116.88 (−8.1%) | 244.53 (−2.1%) | 6.88 (−6.8%) |
 
-Δ% positive = XGBoost better (all metrics are lower-is-better).
+Δ% in parentheses is vs the naive baseline within the same group; **positive = model better** (all metrics are lower-is-better). Bolded cells are the only ones where a model beats the baseline.
 
-**Honest headline: XGBoost does NOT beat the naive lag-1 baseline on MAE or MAPE, but does beat it on RMSE.** Overall MAPE goes 6.10% → 6.93% (13.6% worse), while overall RMSE improves 244.76 → 225.92 (7.7% better). The pattern holds per-commodity: XGBoost shrinks the largest errors (RMSE) at the cost of adding noise to typical small moves (MAE), most pronounced on Onion (MAE −24.4% / RMSE +3.1%).
+### Honest headline
 
-**Feature importance (gain-based, XGBoost v1):**
+- **The direct XGBoost beats the naive lag-1 baseline on RMSE only, and loses on MAE and MAPE.** Overall RMSE improves 244.76 → 225.77 (7.7% better — it meaningfully shrinks the *largest* errors), while overall MAE worsens 109.16 → 122.10 (11.9% worse) and MAPE worsens 6.10% → 6.93% (13.6% worse). It adds noise to typical small moves.
+- **The residual XGBoost — the targeted fix for that MAE/MAPE weakness — loses on all three metrics.** Reformulating the target to the price *change* did not help; it traded the RMSE win away without recovering MAE/MAPE.
+- The pattern holds per-commodity: Onion is hardest (most volatile), Potato is closest to baseline.
+
+**Feature importance — direct XGBoost (gain):**
 
 | Rank | Feature | gain % |
 |---|---|---:|
@@ -122,13 +151,28 @@ Time-based 80/20 split, cutoff **2025-01-14** (train ≤ cutoff, test > cutoff).
 | 8 | `lag_14` | 0.34 |
 | 9–14 | `rolling_std_7`, `rolling_mean_30`, `day_of_week`, `rolling_std_30`, `lag_7`, `lag_30` | 0.25–0.32 |
 
-`lag_1` + `rolling_mean_7` together account for **~96% of total gain**. Every calendar feature, both categorical features, and all longer lags contribute <1% combined.
+`lag_1` + `rolling_mean_7` together account for **~96% of total gain**. Every calendar feature, both categorical features, and all longer lags contribute <1% combined. The direct model is essentially re-learning the price level.
 
-**Interpretation.** At daily state-level granularity, mandi modal prices behave close to a random walk: the best predictor of tomorrow's price is today's price (`lag_1`), and a 7-period rolling mean (`rolling_mean_7`) is the only feature that adds meaningful signal on top. Calendar effects and state/commodity identity carry negligible predictive weight once recent price is known. Beating a naive lag baseline here is genuinely difficult without structural features — arrival volume, weather, and policy shocks — that are not present in this dataset. The RMSE improvement shows the model does extract *some* signal (it meaningfully reduces the largest errors), but not enough to overcome the noise it adds on typical small day-to-day moves.
+**Feature importance — residual XGBoost (gain; `lag_1` excluded by design):**
 
-**This is a real, evidenced finding, not a failed experiment.** The pipeline correctly verifies its scope, prevents leakage, evaluates apples-to-apples, and reports an honest null result against a strong baseline.
+| Rank | Feature | gain % |
+|---|---|---:|
+| 1 | `rolling_mean_30` | 9.53 |
+| 2 | `state` | 9.33 |
+| 3 | `month_sin` | 9.10 |
+| 4 | `day_of_week` | 8.31 |
+| 5 | `commodity` | 8.03 |
+| 6 | `rolling_mean_7` | 8.01 |
+| 7 | `month_cos` | 7.59 |
+| 8 | `lag_30` | 7.53 |
+| 9 | `lag_14` | 7.10 |
+| 10–13 | `rolling_std_7`, `rolling_std_30`, `day_of_year`, `lag_7` | 5.93–6.63 |
 
-**Next planned experiment:** predict the **residual** (`modal_price − lag_1`, i.e. the price *change*) instead of the raw price, then add `lag_1` back at inference. This forces the model to learn what the naive baseline gets wrong rather than relearning `lag_1` from scratch — directly targeting the MAE weakness surfaced by feature importance.
+This is the most diagnostic table in the project: with the price level removed, **no single feature dominates — all 13 features cluster between 5.9% and 9.5% gain.** That uniformity means the model has nothing better than near-random weighting to fall back on when predicting price *changes*. Calendar and identity features, which carried negligible weight for the level, rise to the top here only by default — not because they carry strong change-predictive signal.
+
+### Interpretation
+
+At daily state-level granularity, mandi modal prices behave close to a random walk: the best predictor of tomorrow's price is today's price (`lag_1`), and a 7-period rolling mean is the only feature that adds meaningful signal on top. Calendar effects and state/commodity identity carry negligible predictive weight once recent price is known. Beating a naive lag baseline here is genuinely difficult without **structural features** — arrival volume, weather, and policy shocks — that are not present in this dataset. The direct model's RMSE improvement shows it extracts *some* signal (it reduces the largest errors), but not enough to overcome the noise it adds on typical small day-to-day moves; the residual experiment confirms that weakness cannot be closed by target reformulation alone.
 
 ## Setup
 
@@ -163,15 +207,18 @@ python -m src.models.seasonal_check
 # Phase 3 — naive lag-1 baseline
 python -m src.models.train_baseline
 
-# Phase 3 — train XGBoost, score vs baseline, save model + log run
+# Phase 3 — train direct XGBoost, score vs baseline, save model + log run
 python -m src.models.train_xgboost
+
+# Phase 3 — train residual XGBoost, score + 3-way comparison (baseline/direct/residual)
+python -m src.models.train_xgboost_residual
 ```
 
 ## Known Limitations
 
 - **State-level, not mandi-level.** v1 forecasts state+commodity daily averages, not individual-mandi recommendations. This is a data-density limitation: market-level coverage is ~17% of the date span (too sparse for lag features), documented in the granularity analysis above.
 - **v1 scope is Onion + Potato only.** Tomato and Wheat have a hard national reporting cutoff in the source data (Nov 2023 / Feb 2024) and need a supplementary or updated data source to become forecastable. They remain cleaned and feature-engineered for when such data is available.
-- **No structural demand/supply features.** Arrivals (market arrival volume), weather, MSP (where in scope), and policy events are not currently included. Feature importance shows the price-history-only signal is near-saturated by `lag_1` + `rolling_mean_7`, so structural features are the most promising direction for future improvement.
+- **No structural demand/supply features.** Arrivals (market arrival volume), weather, MSP (where in scope), and policy events are not currently included. Both model runs show the price-history-only signal is near-saturated by `lag_1` + `rolling_mean_7` (direct) or uniformly weak (residual), so structural supply-side features are the most promising direction for future improvement — see Phase 3 below.
 
 ## Column Name Reference
 
@@ -188,8 +235,22 @@ All column names are defined in `src/config.py` — never hardcoded in scripts.
 
 ## Stack
 
-- Data: pandas, numpy
-- Models: scikit-learn, XGBoost, LightGBM
-- Experiment tracking: MLflow
-- API: FastAPI + Uvicorn
-- Testing: pytest
+**Actually used by the v1 pipeline:**
+- Data: `pandas`, `numpy`
+- Models: `xgboost`
+- Experiment tracking: `mlflow` (each training run attempts MLflow logging with a portable JSON run-log fallback in `models_store/`)
+
+**Listed in `requirements.txt` but not yet used** (kept for planned phases): `scikit-learn`, `lightgbm` (candidate models for v2), `fastapi` + `uvicorn` (Phase 2 deployment), `pytest` (test harness, TBD).
+
+## Roadmap / Next Phases
+
+- **Phase 2 — Deployment (deferred).** FastAPI serving layer + Docker containerization. This is deliberately *not* generated yet: it will be built only after studying FastAPI/Docker directly, so the serving layer is understood rather than produced without comprehension. No `src/api/` code exists today.
+- **Phase 3 — Structural data.** Incorporate Agmarknet arrivals + price data (available from Nov 2025 onward) to test whether structural supply-side features (arrival volume, and eventually weather/policy) can close the gap to the naive baseline that price-history-only features could not. This is the direct, evidence-based response to v1's null result.
+- **Phase 4 — Portfolio.** This project is the forecasting piece of a larger agriculture portfolio; the remaining planned pieces are: a **CNN** for image-based quality/ripeness grading, a **RAG** system for policy/MSP document Q&A, and an **agentic layer** (LangGraph) orchestrating across the forecasting model, the CNN, and the RAG system.
+
+## How This Was Built
+
+This project was built **iteratively with an AI coding agent under close supervision** — not generated end-to-end and accepted on faith. Every pipeline stage was independently verified: row counts at each transformation, leakage checks (target absent from features, rolling stats computed on shifted series), a time-based train/test split checked for overlap and seasonality balance, and manual spot-checks of the data. Multiple genuine bugs were caught and fixed along the way — silent date-parsing errors, config/column-name mismatches, and duplicate state labels that pre-training verification surfaced before any model was trained. Stating this plainly is more honest, and a stronger signal of a trustworthy pipeline, than presenting the work as effortless or hand-written.
+
+---
+*v1 status: modeling complete and verified. Deployment is planned future work.*
