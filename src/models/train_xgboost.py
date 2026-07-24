@@ -36,6 +36,7 @@ from src.config import (
     PROCESSED_DATA_DIR,
     MODEL_STORE_DIR,
     COL_DATE,
+    COL_STATE,
     COL_COMMODITY,
     COL_MODAL_PRICE,
     RANDOM_SEED,
@@ -55,6 +56,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASELINE_PREDICTIONS_CSV = PROCESSED_DATA_DIR / "baseline_predictions.csv"
+TEST_PREDICTIONS_CSV = PROCESSED_DATA_DIR / "direct_xgboost_test_predictions.csv"
 MODEL_PATH = MODEL_STORE_DIR / "xgboost_v1.json"
 RUN_LOG_PATH = MODEL_STORE_DIR / "xgboost_v1_run_log.json"
 
@@ -277,6 +279,12 @@ def main():
     xgb_metrics_df = pd.DataFrame(xgb_rows).set_index("group")
     print("XGBoost metrics (test set):")
     print(xgb_metrics_df.to_string())
+
+    # Save test predictions to CSV for visualization
+    predictions_df = test[[COL_DATE, COL_STATE, COL_COMMODITY, COL_MODAL_PRICE, "predicted"]].copy()
+    predictions_df = predictions_df.rename(columns={COL_MODAL_PRICE: "actual_modal_price", "predicted": "predicted_modal_price"})
+    predictions_df.to_csv(TEST_PREDICTIONS_CSV, index=False)
+    logger.info("Saved test predictions to %s", TEST_PREDICTIONS_CSV)
 
     # 6. Baseline comparison
     section("5. BASELINE vs XGBOOST (side-by-side)")

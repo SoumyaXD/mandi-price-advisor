@@ -46,6 +46,13 @@ agri-price-forecaster/
 │  │  └─ train_xgboost_residual.py   # Residual-target XGBoost + 3-way comparison
 │  └─ config.py                      # Centralized paths and column-name constants
 ├─ models_store/                     # Saved model artifacts (.json) + run logs
+├─ visualizations/
+│  ├─ generate_plots.py              # Script to generate all project plots
+│  ├─ price_trends.png               # Daily average price trends per commodity
+│  ├─ monthly_seasonality.png        # Monthly seasonality patterns
+│  ├─ train_test_split.png           # Train/test split visualization
+│  ├─ predicted_vs_actual.png        # Predicted vs actual scatter plots
+│  └─ feature_importance.png          # Feature importance comparison (direct vs residual)
 ├─ notebooks/                        # (placeholder — exploratory analysis, TBD)
 ├─ tests/                            # (placeholder — TBD)
 ├─ requirements.txt
@@ -89,6 +96,10 @@ State+commodity was chosen as the modeling granularity.
 
 **v1 modeling scope: Onion + Potato only** (`COMMODITIES_MODELING_V1` in `src/config.py`). After scope filter + state+commodity aggregation: **32,870 rows × 17 columns** in `data/processed/mandi_prices_features.csv`.
 
+![Price Trends](visualizations/price_trends.png)
+
+![Monthly Seasonality](visualizations/monthly_seasonality.png)
+
 ## Feature Engineering
 
 Final model input: **14 features** (`MODEL_FEATURES` in `src/models/pre_training_verification.py`, shared by import with both training scripts).
@@ -109,6 +120,8 @@ Final model input: **14 features** (`MODEL_FEATURES` in `src/models/pre_training
 ## Modeling Results
 
 Time-based 80/20 split, cutoff **2025-01-14** (train ≤ cutoff, test > cutoff). Train: **22,277 rows** (2023-06-06 → 2025-01-14). Test: **5,599 rows** (2025-01-15 → 2025-06-11). No overlap, no leakage.
+
+![Train/Test Split](visualizations/train_test_split.png)
 
 **Three models, identical setup:**
 - **Naive lag-1 baseline** — `predicted = lag_1`.
@@ -169,6 +182,10 @@ All three are scored on the **same 5,598-row post-cutoff test subset** (rows wit
 | 10–13 | `rolling_std_7`, `rolling_std_30`, `day_of_year`, `lag_7` | 5.93–6.63 |
 
 This is the most diagnostic table in the project: with the price level removed, **no single feature dominates — all 13 features cluster between 5.9% and 9.5% gain.** That uniformity means the model has nothing better than near-random weighting to fall back on when predicting price *changes*. Calendar and identity features, which carried negligible weight for the level, rise to the top here only by default — not because they carry strong change-predictive signal.
+
+![Feature Importance Comparison](visualizations/feature_importance.png)
+
+![Predicted vs Actual](visualizations/predicted_vs_actual.png)
 
 ### Interpretation
 
